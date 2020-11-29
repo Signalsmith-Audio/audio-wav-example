@@ -1,22 +1,22 @@
-# Example WAV project
+# Hello, DSP!
 
-This demo project generates a 2-second 440Hz sine wav, and outputs it as a WAV file.
+This is a self-contained piece of C++ audio code.  The interesting bit is [`main.cpp`](main.cpp).
 
-The interesting bit is [`main.cpp`](main.cpp).
+It generates a 2-second 440Hz sine wav, and writes it as a WAV file.
 
 ## To build and run
+
+Using the [`Makefile`](Makefile):
 
 ```
 make
 ```
 
-This builds `out/main`, and then runs it from the `out/` directory.
-
-The result will be `out/tone-440.wav`.
+This builds `main.cpp` into  `out/main`, and then runs it from the `out/` directory, producing  `out/tone-440.wav`.
 
 ## `wav.h`
 
-This is a simple library to read and write 16-bit WAV files - not comprehensive, but enough for demos and experiments.
+This is a simple library to read and write 16-bit WAV files - enough for demos and experiments.
 
 ### Sample-rate and channel count
 

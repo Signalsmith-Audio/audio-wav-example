@@ -6,12 +6,9 @@ endif
 main: out/main
 	cd out && ./main
 
-out/main: *.h main.cpp
+out/main: wav.h main.cpp
 	mkdir -p out
-	g++ -std=c++11 -Wall -Wextra -Wfatal-errors -O3 \
- 		-Wpedantic -pedantic-errors \
-		main.cpp \
-		-o out/main
+	g++ -std=c++11 main.cpp -o out/main
 
 clean:
 	rm -rf out
