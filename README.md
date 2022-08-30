@@ -16,11 +16,11 @@ This builds `main.cpp` into  `out/main`, and then runs it from the `out/` direct
 
 ## `wav.h`
 
-This is a simple library to read and write 16-bit WAV files - enough for demos and experiments.
+This is a simple library to read and write 16-bit WAV files - enough for demos, experimenting and learning, but probably not serious use.
 
-### Sample-rate and channel count
+### Shape and sample-rate
 
-Get/set these as `.sampleRate` and `.channel`:
+The basic properties are `.sampleRate`, `.channel` and `.length()`:
 
 ```cpp
 Wav wav;
@@ -28,24 +28,25 @@ Wav wav;
 wav.sampleRate = 48000;
 // Channel-count as an unsigned int
 wav.channels = 2;
+
+int length = wav.length(); // length (for each channel)
+wav.resize(2, 1000); // resize with channel/length
 ```
 
-WAV sample-rates are actually 32-bit integers, but it's stored here as a `double` so you can divide by it more easily.
+WAV sample-rates are actually 32-bit integers, but `.sampleRate` is a `double` since we often divide by it.
 
 ### Sample data
 
-Samples are in `.samples`, which is a `std::vector<double>`:
+The most convenient way to read/write samples is `wav[channel][index]`.  Samples are scaled to the unit range (-1, 1), and converted on input/output.
+
+The actual data is stored in `.samples`, which is a `std::vector<double>`:
 
 ```cpp
 wav.samples.resize(1000);
 wav.samples[0] = 0;
 ```
 
-Samples are scaled to the unit range (-1, 1), and converted on input/output.
-
-#### Multichannel data
-
-Multichannel WAV samples are interleaved, so for a stereo file:
+Multichannel WAV data is interleaved, so for a stereo file:
 * `wav.samples[0]` is the first left, sample
 * `wav.samples[1]` is the first right sample
 * `wav.samples[2]` is the second left sample
@@ -55,7 +56,7 @@ Multichannel WAV samples are interleaved, so for a stereo file:
 
 You read/write with `.read()` and `.write()`, using filenames as `std::string`.
 
-These return a `result` object, which evaluates `true` for success, and `false` for failure.  It has a `.reason` string for human-readable errors;
+These return a `result` object, which converts to `bool` for success/failure, and has a `.reason` string for human-readable errors.
 
 ```cpp
 Wav wav;
@@ -65,14 +66,16 @@ if (!result) {
 }
 ```
 
-The result of the latest operation is also available as `wav.result`, so you can write stuff like this:
+The latest result is also stored as `wav.result`.
+
+Since logging an error is so common, you can do this with the `.warn()` method:
 
 ```cpp
-if (!wav.write("output.wav")) {
-	std::cerr << wav.result.reason << "\n";
+if (!wav.write("output.wav").warn()) {
+	// handle failure
 }
 ```
 
 ## License
 
-Uh... [CC0](https://creativecommons.org/publicdomain/zero/1.0/).  If you need anything else, contact me.
+It's released as [CC0](https://creativecommons.org/publicdomain/zero/1.0/).  If you need anything else, contact me.

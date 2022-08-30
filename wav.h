@@ -1,3 +1,38 @@
+/**
+	Copyright 2018-2022 (c) Geraint Luff / Signalsmith Audio
+	Released under CC0 or public-domain (where applicable)
+
+	A basic class for reading/writing WAV files, currently only supporting 16-bit PCM.
+	
+		Wav wav("input.wav");
+		
+		// You can check the `.result`:
+		if (!wav.result) {
+			std::cout << wav.result.reason << "\n";
+			return 0;
+		}
+		// Or the result object is returned from the read/write
+		if (!wav.write("output.wav")) return 0;
+		// This convenience method writes a warning to stderr on failure
+		if (!wav.write("output.wav").warn()) return 0);
+
+		std::cout << "duration = " << wav.length()/wav.sampleRate << " seconds\n";
+
+		// You can either access samples by channel/index:
+		for (int i = 0; i < wav.length(); ++i) {
+			for (int c = 0; c < wav.channels; ++c) {
+				wav[c][i] *= 0.5;
+			}
+		}
+		// or from the interleaved sample array, a `vector<double>`:
+		for (auto &s : wav.samples) {
+			s *= 2;
+		}
+		// You can either resize with this method, or directly with `.channels` and `.samples`
+		wav.resize(newChannels, newLength);
+		// Average all channels into one, for convenience
+		wav.makeMono();
+*/
 #ifndef RIFF_WAVE_H_
 #define RIFF_WAVE_H_
 
@@ -76,6 +111,32 @@ public:
 	unsigned int sampleRate = 48000;
 	unsigned int channels = 1;
 	std::vector<double> samples;
+	int length() const {
+		return samples.size()/channels;
+	}
+	void resize(int numChannels, int length) {
+		channels = numChannels;
+		samples.resize(channels*length);
+	}
+	template<bool isConst>
+	class ChannelReader {
+		using CSample = typename std::conditional<isConst, const double, double>::type;
+		CSample *data;
+		int stride;
+	public:
+		ChannelReader(CSample *samples, int stride) : data(samples), stride(stride) {}
+		
+		CSample & operator [](int i) {
+			return data[i*stride];
+		}
+	};
+	ChannelReader<false> operator [](int c) {
+		return ChannelReader<false>(samples.data() + c, channels);
+	}
+	ChannelReader<true> operator [](int c) const {
+		return ChannelReader<true>(samples.data() + c, channels);
+	}
+	
 	Result result = Result(Result::Code::OK);
 
 	Wav() {}
@@ -86,10 +147,14 @@ public:
 	}
 	
 	enum class Format {
-		INT16LE=1
+		PCM=1
 	};
-	bool formatIsValid(uint16_t value) {
-		if (value == (uint16_t)Format::INT16LE) return true;
+	bool formatIsValid(uint16_t format, uint16_t bits) const {
+		if (format == (uint16_t)Format::PCM) {
+			if (bits == 16) {
+				return true;
+			}
+		}
 		return false;
 	}
 	
@@ -103,12 +168,14 @@ public:
 		read32(file); // File length - we don't check this
 		if (read32(file) != value_WAVE) return result = Result(Result::Code::FORMAT_ERROR, "Input is not a plain WAVE file");
 		
-		Format format = Format::INT16LE; // Shouldn't matter, we should always get a "fmt " chunk before data
+		auto blockStart = file.tellg(); // start of the blocks - we will seek back to here periodically
+		bool hasFormat = false, hasData = false;
+		
+		Format format = Format::PCM; // Shouldn't matter, we should always read the `fmt ` chunk before `data`
 		while (!file.eof()) {
 			auto blockType = read32(file), blockLength = read32(file);
-			if (blockType == value_fmt) {
+			if (!hasFormat && blockType == value_fmt) {
 				auto formatInt = read16(file);
-				if (!formatIsValid(formatInt)) return result = Result(Result::Code::UNSUPPORTED, "Unsupported format: " + std::to_string(formatInt));
 				format = (Format)formatInt;
 				channels = read16(file);
 				if (channels < 1) return result = Result(Result::Code::FORMAT_ERROR, "Cannot have zero channels");
@@ -119,13 +186,18 @@ public:
 				unsigned int expectedBytesPerSecond = read32(file);
 				unsigned int bytesPerFrame = read16(file);
 				unsigned int bitsPerSample = read16(file);
+				if (!formatIsValid(formatInt, bitsPerSample)) return result = Result(Result::Code::UNSUPPORTED, "Unsupported format:bits: " + std::to_string(formatInt) + ":" + std::to_string(bitsPerSample));
 				// Since it's plain WAVE, we can do some extra checks for consistency
 				if (bitsPerSample*channels != bytesPerFrame*8) return result = Result(Result::Code::FORMAT_ERROR, "Format sizes don't add up");
 				if (expectedBytesPerSecond != sampleRate*bytesPerFrame) return result = Result(Result::Code::FORMAT_ERROR, "Format sizes don't add up");
-			} else if (blockType == value_data) {
+
+				hasFormat = true;
+				file.clear();
+				file.seekg(blockStart);
+			} else if (hasFormat && blockType == value_data) {
 				std::vector<double> samples(0);
 				switch (format) {
-				case Format::INT16LE:
+				case Format::PCM:
 					samples.reserve(blockLength/2);
 					for (size_t i = 0; i < blockLength/2; ++i) {
 						uint16_t value = read16(file);
@@ -141,14 +213,17 @@ public:
 					samples.push_back(0);
 				}
 				this->samples = samples;
+				hasData = true;
 			} else {
 				file.ignore(blockLength);
 			}
 		}
+		if (!hasFormat) return result = Result(Result::Code::FORMAT_ERROR, "missing `fmt ` block");
+		if (!hasData) return result = Result(Result::Code::FORMAT_ERROR, "missing `data` block");
 		return result = Result(Result::Code::OK);
 	}
 	
-	Result write(std::string filename, Format format=Format::INT16LE) {
+	Result write(std::string filename, Format format=Format::PCM) {
 		if (channels == 0 || channels > 65535) return result = Result(Result::Code::WEIRD_CONFIG, "Invalid channel count");
 		if (sampleRate <= 0 || sampleRate > 0xFFFFFFFFu) return result = Result(Result::Code::WEIRD_CONFIG, "Invalid sample rate");
 		
@@ -158,7 +233,7 @@ public:
 		
 		int bytesPerSample;
 		switch (format) {
-		case Format::INT16LE:
+		case Format::PCM:
 			bytesPerSample = 2;
 			break;
 		}
@@ -186,7 +261,7 @@ public:
 		write32(file, value_data);
 		write32(file, dataLength);
 		switch (format) {
-		case Format::INT16LE:
+		case Format::PCM:
 			for (unsigned int i = 0; i < samples.size(); i++) {
 				double value = samples[i]*32768;
 				if (value > 32767) value = 32767;

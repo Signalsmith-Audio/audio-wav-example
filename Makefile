@@ -1,7 +1,5 @@
-.PHONY: main
-ifndef VERBOSE
-.SILENT:
-endif
+.PHONY: main clean
+.SILENT: main
 
 main: out/main
 	cd out && ./main
